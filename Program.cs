@@ -96,8 +96,18 @@ static Config ReadConfig(FileInfo file)
     if (!file.Extension.Equals(".xml", StringComparison.OrdinalIgnoreCase))
         throw new NotSupportedException($"Unsupported configuration format: {file.Extension}. Expected .xml.");
 
-    var config = new ConfigurationBuilder().AddXmlFile(file.FullName).Build().Get<Config>()
+    var configuration = new ConfigurationBuilder().AddXmlFile(file.FullName).Build();
+    var config = configuration.Get<Config>()
                  ?? throw new InvalidOperationException("Could not bind configuration.");
+
+    // The XML provider emits numeric keys only when an element is repeated.
+    // A single <ProjectPaths> element therefore cannot be bound to the list.
+    if (config.ProjectPaths.Count == 0 && configuration.GetSection("ProjectPaths").Exists())
+    {
+        var section = configuration.GetSection("ProjectPaths");
+        config.ProjectPaths.Add(new ProjectRef(section["Path"] ?? "", section["Folder"] ?? ""));
+    }
+
     if (string.IsNullOrWhiteSpace(config.SolutionPath))
         throw new InvalidOperationException("SolutionPath is required in the config file.");
     if (config.ProjectPaths.Count == 0)
