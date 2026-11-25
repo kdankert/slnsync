@@ -87,7 +87,10 @@ aggregate. Missing source solutions are skipped. The aggregate is created if nee
 
 For each source folder, `slnsync`:
 
-- removes the projects currently in that folder and adds the source solution's projects in their place;
+- removes the projects currently in that folder and its subfolders, then adds the source solution's projects in their
+  place;
+- mirrors the source solution's folder hierarchy as subfolders of the configured folder (projects at the source
+  solution root go directly into the configured folder; empty source folders are not copied);
 - rewrites project paths relative to the aggregate solution;
 - skips projects already present elsewhere in the aggregate (matched by full path);
 - leaves projects in other folders and other solution content untouched.
@@ -97,7 +100,7 @@ For each source folder, `slnsync`:
 Watch mode performs an initial sync and then monitors the solution files for last-write changes:
 
 - a change to a source solution re-syncs only that source's folder into the aggregate;
-- a change to the aggregate solution rewrites **all** configured source solutions from their folders;
+- a change to the aggregate solution rewrites **all** configured source solutions from their folders and subfolders;
 - writes made by `slnsync` itself are recognized and do not trigger another sync.
 
 No timestamps or state files are used. Solution files are re-read on every sync, and change detection uses SHA-256

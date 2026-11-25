@@ -25,17 +25,17 @@ internal sealed class Synchronizer(Config config)
             if (!File.Exists(source.Path)) continue;
 
             var (_, model) = await OpenAsync(source.Path);
-            var folder = aggregate.FindFolder($"/{source.Folder}/")
-                         ?? aggregate.AddFolder($"/{source.Folder}/");
+            var root = aggregate.FindFolder($"/{source.Folder}/")
+                       ?? aggregate.AddFolder($"/{source.Folder}/");
 
-            foreach (var project in aggregate.SolutionProjects.Where(p => p.Parent == folder).ToArray())
-                aggregate.RemoveProject(project);
+            ClearFolder(aggregate, root);
 
             var sourceDir = DirectoryOf(source.Path);
             foreach (var project in model.SolutionProjects)
             {
                 var full = Full(sourceDir, project.FilePath);
                 if (aggregate.SolutionProjects.Any(p => Same(Full(aggregateDir, p.FilePath), full))) continue;
+                var folder = AggregateFolder(aggregate, root, project.Parent);
                 aggregate.AddProject(Path.GetRelativePath(aggregateDir, full), project.Type, folder);
             }
         }
@@ -50,10 +50,10 @@ internal sealed class Synchronizer(Config config)
 
         foreach (var source in config.ProjectPaths)
         {
-            var folder = aggregate.FindFolder($"/{source.Folder}/");
-            var projects = folder is null
+            var root = aggregate.FindFolder($"/{source.Folder}/");
+            var projects = root is null
                 ? []
-                : aggregate.SolutionProjects.Where(p => p.Parent == folder).ToArray();
+                : aggregate.SolutionProjects.Where(p => IsInFolder(p.Parent, root)).ToArray();
 
             var (serializer, model) = await OpenAsync(source.Path);
             foreach (var project in model.SolutionProjects.ToArray())
@@ -61,7 +61,10 @@ internal sealed class Synchronizer(Config config)
 
             var sourceDir = DirectoryOf(source.Path);
             foreach (var project in projects)
-                model.AddProject(Path.GetRelativePath(sourceDir, Full(aggregateDir, project.FilePath)), project.Type);
+            {
+                var folder = SourceFolder(model, root!, project.Parent);
+                model.AddProject(Path.GetRelativePath(sourceDir, Full(aggregateDir, project.FilePath)), project.Type, folder);
+            }
 
             await SaveAsync(source.Path, serializer, model, cancellationToken);
         }
@@ -132,6 +135,42 @@ internal sealed class Synchronizer(Config config)
     private static bool Same(string a, string b)
     {
         return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void ClearFolder(SolutionModel solution, SolutionFolderModel folder)
+    {
+        foreach (var child in solution.SolutionFolders.Where(f => ReferenceEquals(f.Parent, folder)).ToArray())
+            solution.RemoveFolder(child);
+
+        foreach (var project in solution.SolutionProjects.Where(p => ReferenceEquals(p.Parent, folder)).ToArray())
+            solution.RemoveProject(project);
+    }
+
+    private static SolutionFolderModel AggregateFolder(SolutionModel aggregate, SolutionFolderModel root,
+        SolutionFolderModel? sourceFolder)
+    {
+        return sourceFolder is null
+            ? root
+            : aggregate.AddFolder(root.Path + sourceFolder.Path.TrimStart('/'));
+    }
+
+    private static SolutionFolderModel? SourceFolder(SolutionModel model, SolutionFolderModel root,
+        SolutionFolderModel? aggregateFolder)
+    {
+        if (aggregateFolder is null || ReferenceEquals(aggregateFolder, root) || !IsInFolder(aggregateFolder, root))
+            return null;
+        if (!aggregateFolder.Path.StartsWith(root.Path, StringComparison.Ordinal)) return null;
+
+        var path = aggregateFolder.Path[(root.Path.Length - 1)..];
+        return model.FindFolder(path) ?? model.AddFolder(path);
+    }
+
+    private static bool IsInFolder(SolutionFolderModel? folder, SolutionFolderModel root)
+    {
+        for (var current = folder; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, root)) return true;
+
+        return false;
     }
 
     private sealed class Watchers(FileSystemWatcher[] watchers) : IDisposable
