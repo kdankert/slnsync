@@ -9,22 +9,36 @@ aggregate updates all source solutions.
 
 ## Requirements
 
-- .NET 10 SDK
+- .NET 10 runtime (the .NET 10 SDK is needed to build or pack the tool)
 - Solutions in either `.sln` or `.slnx` format (read and written via
   [Microsoft.VisualStudio.SolutionPersistence](https://www.nuget.org/packages/Microsoft.VisualStudio.SolutionPersistence))
 
-## Build
+## Install
+
+`slnsync` is a .NET tool. To build and install it from this checkout:
 
 ```bash
-dotnet build
+dotnet pack -c Release
+dotnet tool install --global --add-source ./nupkg slnsync
 ```
 
-To produce a standalone output directory:
+After making changes, rebuild and update the installed tool:
 
 ```bash
-dotnet publish -c Release -o out
-out/slnsync slnsync.xml --watch   # use out/slnsync.exe on Windows
+dotnet pack -c Release
+dotnet tool update --global --add-source ./nupkg slnsync
 ```
+
+When the package is available on NuGet, install it with:
+
+```bash
+dotnet tool install --global slnsync
+```
+
+Use `dotnet tool uninstall --global slnsync` to remove it.
+
+The default package version is `0.0.0` for local builds. CI can override it at pack time with, for example,
+`dotnet pack -c Release -p:Version=1.2.3`.
 
 ## Config
 
@@ -60,11 +74,11 @@ sharing a folder would overwrite each other's projects.
 ## Usage
 
 ```bash
-dotnet run -- slnsync.xml          # sync once
-dotnet run -- slnsync.xml --watch  # sync once, then re-sync on changes
+slnsync slnsync.xml          # sync once
+slnsync slnsync.xml --watch  # sync once, then re-sync on changes
 ```
 
-With a published build, use `slnsync <config> [--watch]` instead of `dotnet run -- ...`.
+The config file is the only positional argument; `--watch` is optional.
 
 ### One-shot sync
 
@@ -89,8 +103,19 @@ Watch mode performs an initial sync and then monitors the solution files for las
 No timestamps or state files are used. Solution files are re-read on every sync, and change detection uses SHA-256
 fingerprints kept in memory. Errors are printed to the console without stopping the watcher. Press Ctrl+C to stop.
 
+## CI
+
+`build.yml` restores, builds, and packs on every push and pull request. `publish.yml` runs only when a GitHub release
+is published; it packs using the release tag as the version (minus a leading `v`) and pushes the package to NuGet via
+trusted publishing. The job needs `id-token: write` and a `NUGET_USER` secret containing the nuget.org profile name,
+and the NuGet trusted publishing policy must allow `publish.yml`.
+
 ## Notes
 
 - `slnsync` only edits solution project lists. It does not move, copy, or create project files on disk.
 - Projects added manually to a managed folder in the aggregate are removed on the next sync from that source.
 - Project type information is preserved when projects are copied in either direction.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
