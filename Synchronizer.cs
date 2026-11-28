@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Xml;
+using System.Xml.Linq;
 using Microsoft.VisualStudio.SolutionPersistence;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
@@ -45,6 +47,9 @@ internal sealed class Synchronizer(Config config)
                 var folder = AggregateFolder(aggregate, root, sourceFolder);
                 folder.AddFile(Path.GetRelativePath(aggregateDir, full));
             }
+
+            foreach (var file in RootFiles(source.Path))
+                root.AddFile(Path.GetRelativePath(aggregateDir, Full(sourceDir, file)));
         }
 
         await SaveAsync(AggregatePath, serializer, aggregate, cancellationToken);
@@ -61,10 +66,11 @@ internal sealed class Synchronizer(Config config)
             var projects = root is null
                 ? []
                 : aggregate.SolutionProjects.Where(p => IsInFolder(p.Parent, root)).ToArray();
+            var rootFiles = root is null ? [] : Files(root).ToArray();
             var files = root is null
                 ? []
                 : aggregate.SolutionFolders
-                    .Where(f => IsInFolder(f, root))
+                    .Where(f => !ReferenceEquals(f, root) && IsInFolder(f, root))
                     .SelectMany(f => Files(f).Select(file => (Folder: f, File: file)))
                     .ToArray();
 
@@ -90,6 +96,10 @@ internal sealed class Synchronizer(Config config)
             }
 
             await SaveAsync(source.Path, serializer, model, cancellationToken);
+            WriteRootFiles(source.Path, rootFiles
+                .Select(file => Path.GetRelativePath(sourceDir, Full(aggregateDir, file)))
+                .ToArray());
+            RefreshFingerprint(source.Path);
         }
     }
 
@@ -137,6 +147,11 @@ internal sealed class Synchronizer(Config config)
         CancellationToken cancellationToken)
     {
         await serializer.SaveAsync(path, model, cancellationToken);
+        RefreshFingerprint(path);
+    }
+
+    private void RefreshFingerprint(string path)
+    {
         _fingerprints[Path.GetFullPath(path)] = Fingerprint(path);
     }
 
@@ -190,6 +205,55 @@ internal sealed class Synchronizer(Config config)
 
         var path = aggregateFolder.Path[(root.Path.Length - 1)..];
         return model.FindFolder(path) ?? model.AddFolder(path);
+    }
+
+    private static IReadOnlyList<string> RootFiles(string path)
+    {
+        if (!path.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return [];
+
+        var document = XDocument.Load(path, LoadOptions.PreserveWhitespace);
+        return document.Root?.Elements("File")
+            .Select(element => (string?)element.Attribute("Path"))
+            .Where(file => file is not null)
+            .Select(file => file!)
+            .ToArray() ?? [];
+    }
+
+    private static void WriteRootFiles(string path, IReadOnlyList<string> files)
+    {
+        if (!path.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase)) return;
+
+        var lines = File.ReadAllLines(path);
+        var document = XDocument.Load(path, LoadOptions.SetLineInfo);
+        var root = document.Root;
+        if (root is null) return;
+
+        var removed = new HashSet<int>();
+        foreach (var element in root.Elements("File"))
+        {
+            if (element is not IXmlLineInfo info || !info.HasLineInfo()) continue;
+            var start = info.LineNumber - 1;
+            var end = start;
+            while (end < lines.Length && !lines[end].Contains("/>"))
+                end++;
+            for (var line = start; line <= Math.Min(end, lines.Length - 1); line++)
+                removed.Add(line);
+        }
+
+        var folderLine = root.Elements("Folder")
+            .OfType<IXmlLineInfo>()
+            .Where(info => info.HasLineInfo())
+            .Select(info => info.LineNumber - 1)
+            .DefaultIfEmpty(lines.Length)
+            .Min();
+        var indent = folderLine < lines.Length
+            ? new string(lines[folderLine].TakeWhile(char.IsWhiteSpace).ToArray())
+            : "  ";
+
+        var rewritten = lines.Where((_, index) => !removed.Contains(index)).ToList();
+        var insertAt = folderLine - removed.Count(line => line < folderLine);
+        rewritten.InsertRange(insertAt, files.Select(file => $"{indent}<File {new XAttribute("Path", file)} />"));
+        File.WriteAllLines(path, rewritten);
     }
 
     private static IEnumerable<string> Files(SolutionFolderModel folder)

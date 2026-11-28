@@ -89,8 +89,8 @@ For each source folder, `slnsync`:
 
 - removes the projects and files currently in that folder and its subfolders, then adds the source solution's projects
   and files in their place;
-- mirrors the source solution's folder hierarchy as subfolders of the configured folder (projects at the source
-  solution root go directly into the configured folder; empty source folders are not copied);
+- mirrors the source solution's folder hierarchy as subfolders of the configured folder (projects and files at the
+  source solution root go directly into the configured folder; empty source folders are not copied);
 - rewrites project and file paths relative to the aggregate solution;
 - skips projects already present elsewhere in the aggregate (matched by full path);
 - leaves projects and files in other folders and other solution content untouched.
@@ -118,8 +118,9 @@ and the NuGet trusted publishing policy must allow `publish.yml`.
 
 - `slnsync` only edits solution project and file lists. It does not move, copy, or create files on disk.
 - Projects and files added manually to a managed folder in the aggregate are removed on the next sync from that source.
-- Files listed directly in a managed folder in the aggregate are not written back to a source solution, because source
-  solution files must belong to a solution folder. Put them in a subfolder to sync them both ways.
+- Files at the root of a `.slnx` source solution are mirrored into the managed folder in the aggregate and written back
+  to the source root when the aggregate changes. `.sln` sources have no root-level file equivalent, so such files are
+  only mirrored into the aggregate.
 - Project type information is preserved when projects are copied in either direction.
 
 ## License
