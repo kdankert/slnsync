@@ -1,8 +1,8 @@
 # slnsync
 
-Keeps an aggregate `.sln` / `.slnx` solution in sync with source solutions. The projects from each source solution are
-mirrored into their own solution folder in the aggregate, so you can work on a single service or on the whole repository
-in one IDE window.
+Keeps an aggregate `.sln` / `.slnx` solution in sync with source solutions. The projects and solution files from each
+source solution are mirrored into their own solution folder in the aggregate, so you can work on a single service or on
+the whole repository in one IDE window.
 
 In watch mode, changes flow both ways: editing a source solution updates its folder in the aggregate, and editing the
 aggregate updates all source solutions.
@@ -87,13 +87,13 @@ aggregate. Missing source solutions are skipped. The aggregate is created if nee
 
 For each source folder, `slnsync`:
 
-- removes the projects currently in that folder and its subfolders, then adds the source solution's projects in their
-  place;
+- removes the projects and files currently in that folder and its subfolders, then adds the source solution's projects
+  and files in their place;
 - mirrors the source solution's folder hierarchy as subfolders of the configured folder (projects at the source
   solution root go directly into the configured folder; empty source folders are not copied);
-- rewrites project paths relative to the aggregate solution;
+- rewrites project and file paths relative to the aggregate solution;
 - skips projects already present elsewhere in the aggregate (matched by full path);
-- leaves projects in other folders and other solution content untouched.
+- leaves projects and files in other folders and other solution content untouched.
 
 ### Watch mode
 
@@ -101,6 +101,7 @@ Watch mode performs an initial sync and then monitors the solution files for las
 
 - a change to a source solution re-syncs only that source's folder into the aggregate;
 - a change to the aggregate solution rewrites **all** configured source solutions from their folders and subfolders;
+- both directions include solution files as well as projects;
 - writes made by `slnsync` itself are recognized and do not trigger another sync.
 
 No timestamps or state files are used. Solution files are re-read on every sync, and change detection uses SHA-256
@@ -115,8 +116,10 @@ and the NuGet trusted publishing policy must allow `publish.yml`.
 
 ## Notes
 
-- `slnsync` only edits solution project lists. It does not move, copy, or create project files on disk.
-- Projects added manually to a managed folder in the aggregate are removed on the next sync from that source.
+- `slnsync` only edits solution project and file lists. It does not move, copy, or create files on disk.
+- Projects and files added manually to a managed folder in the aggregate are removed on the next sync from that source.
+- Files listed directly in a managed folder in the aggregate are not written back to a source solution, because source
+  solution files must belong to a solution folder. Put them in a subfolder to sync them both ways.
 - Project type information is preserved when projects are copied in either direction.
 
 ## License

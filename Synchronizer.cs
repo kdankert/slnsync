@@ -38,6 +38,13 @@ internal sealed class Synchronizer(Config config)
                 var folder = AggregateFolder(aggregate, root, project.Parent);
                 aggregate.AddProject(Path.GetRelativePath(aggregateDir, full), project.Type, folder);
             }
+
+            foreach (var (sourceFolder, file) in Files(model))
+            {
+                var full = Full(sourceDir, file);
+                var folder = AggregateFolder(aggregate, root, sourceFolder);
+                folder.AddFile(Path.GetRelativePath(aggregateDir, full));
+            }
         }
 
         await SaveAsync(AggregatePath, serializer, aggregate, cancellationToken);
@@ -54,16 +61,32 @@ internal sealed class Synchronizer(Config config)
             var projects = root is null
                 ? []
                 : aggregate.SolutionProjects.Where(p => IsInFolder(p.Parent, root)).ToArray();
+            var files = root is null
+                ? []
+                : aggregate.SolutionFolders
+                    .Where(f => IsInFolder(f, root))
+                    .SelectMany(f => Files(f).Select(file => (Folder: f, File: file)))
+                    .ToArray();
 
             var (serializer, model) = await OpenAsync(source.Path);
             foreach (var project in model.SolutionProjects.ToArray())
                 model.RemoveProject(project);
+            foreach (var folder in model.SolutionFolders)
+                foreach (var file in (folder.Files ?? []).ToArray())
+                    folder.RemoveFile(file);
 
             var sourceDir = DirectoryOf(source.Path);
             foreach (var project in projects)
             {
                 var folder = SourceFolder(model, root!, project.Parent);
                 model.AddProject(Path.GetRelativePath(sourceDir, Full(aggregateDir, project.FilePath)), project.Type, folder);
+            }
+
+            foreach (var (aggregateFolder, file) in files)
+            {
+                var folder = SourceFolder(model, root!, aggregateFolder);
+                if (folder is null) continue;
+                folder.AddFile(Path.GetRelativePath(sourceDir, Full(aggregateDir, file)));
             }
 
             await SaveAsync(source.Path, serializer, model, cancellationToken);
@@ -139,6 +162,10 @@ internal sealed class Synchronizer(Config config)
 
     private static void ClearFolder(SolutionModel solution, SolutionFolderModel folder)
     {
+        foreach (var target in solution.SolutionFolders.Where(f => IsInFolder(f, folder)).ToArray())
+            foreach (var file in Files(target).ToArray())
+                target.RemoveFile(file);
+
         foreach (var child in solution.SolutionFolders.Where(f => ReferenceEquals(f.Parent, folder)).ToArray())
             solution.RemoveFolder(child);
 
@@ -163,6 +190,18 @@ internal sealed class Synchronizer(Config config)
 
         var path = aggregateFolder.Path[(root.Path.Length - 1)..];
         return model.FindFolder(path) ?? model.AddFolder(path);
+    }
+
+    private static IEnumerable<string> Files(SolutionFolderModel folder)
+    {
+        return folder.Files ?? [];
+    }
+
+    private static IEnumerable<(SolutionFolderModel Folder, string File)> Files(SolutionModel model)
+    {
+        foreach (var folder in model.SolutionFolders)
+            foreach (var file in Files(folder))
+                yield return (folder, file);
     }
 
     private static bool IsInFolder(SolutionFolderModel? folder, SolutionFolderModel root)
